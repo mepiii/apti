@@ -1,0 +1,723 @@
+# Purpose: Validate Apti backend prediction contract constants.
+# Callers: pytest contract suite.
+# Deps: app.recommendation_config.
+# API: Pytest tests for version and religion preference constants.
+# Side effects: None.
+
+from fastapi.testclient import TestClient
+import json
+
+from pydantic import ValidationError
+
+from app.recommendation_config import (
+    DATASET_VERSION,
+    FEATURE_VERSION,
+    MODEL_VERSION,
+    RELIGION_RELATED_MAJORS,
+    VALID_RELIGION_RELATED_MAJOR_PREFERENCES,
+)
+from app.schemas import PredictRequest, PredictResponse, RecommendationItem, RaporInput, SemesterScore
+
+
+def feature_row_for(req):
+    from app.services.ml_service import MLService
+
+    return MLService()._to_feature_row(req).iloc[0].to_dict()
+
+
+def test_apti_versions_are_canonical():
+    assert MODEL_VERSION == "apti_v2"
+    assert FEATURE_VERSION == "apti_features_v2"
+    assert DATASET_VERSION == "apti_dataset_v2"
+
+
+def test_religion_preferences_are_not_identity_labels():
+    assert "Not relevant" in VALID_RELIGION_RELATED_MAJOR_PREFERENCES
+    assert "Islamic studies / education" in VALID_RELIGION_RELATED_MAJOR_PREFERENCES
+    assert "What is your religion?" not in VALID_RELIGION_RELATED_MAJOR_PREFERENCES
+    assert "Islamic Education" in RELIGION_RELATED_MAJORS
+
+
+def route_payload():
+    return {
+        "sma_track": "IPA",
+        "scores": {
+            "mathematics": 91,
+            "english": 86,
+            "physics": 84,
+            "chemistry": 78,
+            "biology": 74,
+        },
+        "interests": ["Technology", "Data / AI", "Design"],
+        "preferences": {"religion_related_major_preference": "Not relevant"},
+        "top_n": 3,
+        "language": "en",
+    }
+
+
+def test_health_route_returns_p0_contract(monkeypatch):
+    from app.main import app
+    from app.services.ml_service import ml_service
+
+    monkeypatch.setattr(ml_service, "model", None)
+    monkeypatch.setattr(ml_service, "label_encoder", None)
+    response = TestClient(app).get("/health")
+    data = response.json()
+
+    assert response.status_code == 200
+    assert data["app"] == "apti"
+    assert data["status"] == "degraded"
+    assert data["model_loaded"] is False
+    assert data["model_version"] == MODEL_VERSION
+    assert data["feature_version"] == FEATURE_VERSION
+    assert isinstance(data["supabase_configured"], bool)
+    assert "timestamp" in data
+    assert "supabase_service_key" not in data
+
+
+def test_model_health_route_exposes_evaluation_gate(monkeypatch):
+    from app.main import app
+    from app.services.ml_service import ml_service
+
+    monkeypatch.setattr(ml_service, "model", None)
+    monkeypatch.setattr(ml_service, "label_encoder", None)
+    response = TestClient(app).get("/api/v1/health/model")
+    data = response.json()
+
+    assert response.status_code == 200
+    assert data["app"] == "apti"
+    assert data["fallback_available"] is True
+    assert data["evaluation_gate"]["version"] == "apti_evaluation_gate_v1"
+    assert "production_swap_allowed" in data["evaluation_gate"]["gates"]
+
+
+
+def test_predict_route_returns_p0_contract_when_model_disabled(monkeypatch):
+    from app.main import app
+    from app.services.ml_service import ml_service
+
+    monkeypatch.setattr(ml_service, "model", None)
+    monkeypatch.setattr(ml_service, "label_encoder", None)
+    monkeypatch.setattr("app.api.routes.log_prediction", lambda *_, **__: (_ for _ in ()).throw(RuntimeError("log failed")))
+
+    response = TestClient(app).post("/predict", json=route_payload())
+    data = response.json()
+
+    assert response.status_code == 200
+    assert data["app"] == "apti"
+    assert data["model_version"] == MODEL_VERSION
+    assert data["feature_version"] == FEATURE_VERSION
+    assert data["session_id"]
+    assert data["fallback_used"] is True
+    assert isinstance(data["latency_ms"], int)
+    assert len(data["recommendations"]) >= 3
+    assert isinstance(data["profile_summary"], dict)
+    assert isinstance(data["notes"], list)
+
+
+def test_predict_request_accepts_nullable_optional_scores():
+    req = PredictRequest(
+        sma_track="IPA",
+        scores={
+            "mathematics": 88,
+            "bahasa_indonesia": 84,
+            "english": 90,
+            "history": 82,
+            "civics": 80,
+            "physics": 85,
+            "chemistry": 78,
+            "biology": 80,
+            "regional_language": None,
+            "arts_culture": 86,
+            "religion_ethics": None,
+            "informatics": 92,
+        },
+        interests=["Technology", "AI / Data", "Design"],
+        preferences={
+            "thinking_style": ["Numbers", "Systems"],
+            "problem_type": ["Technical", "Creative"],
+            "work_style": ["Independent"],
+            "career_orientation": ["Technology oriented", "High growth"],
+            "religion_related_major_preference": "Not relevant",
+        },
+        top_n=9,
+        language="en",
+    )
+
+    assert req.scores["regional_language"] is None
+    assert req.top_n == 5
+    assert req.preferences["religion_related_major_preference"] == "Not relevant"
+
+
+def test_optional_subjects_missing_are_neutral_feature_values():
+    req = PredictRequest(
+        sma_track="IPA",
+        scores={
+            "mathematics": 88,
+            "bahasa_indonesia": 84,
+            "english": 90,
+            "history": 82,
+            "civics": 80,
+            "physics": 85,
+            "chemistry": 78,
+            "biology": 80,
+            "regional_language": None,
+            "arts_culture": None,
+            "religion_ethics": None,
+            "informatics": None,
+        },
+        interests=["Technology"],
+        preferences={},
+    )
+    features = feature_row_for(req)
+
+    assert features["has_regional_language"] == 0
+    assert features["has_art"] == 0
+    assert features["has_religion_ethics"] == 0
+    assert features["has_pkwu"] == 0
+    assert features["has_pe"] == 0
+    assert features["has_informatics"] == 0
+    assert features["optional_subject_count"] == 0
+    assert features["optional_subject_boost"] == 50
+
+
+def test_present_optional_subjects_add_bonus_feature_values():
+    req = PredictRequest(
+        sma_track="IPA",
+        scores={
+            "mathematics": 88,
+            "bahasa_indonesia": 84,
+            "english": 90,
+            "history": 82,
+            "civics": 80,
+            "physics": 85,
+            "chemistry": 78,
+            "biology": 80,
+            "regional_language": 86,
+            "arts_culture": 90,
+            "pkwu": 77,
+            "prakarya": 79,
+            "pe": 70,
+            "religion_ethics": None,
+            "informatics": 92,
+        },
+        interests=["Technology"],
+        preferences={},
+    )
+    features = feature_row_for(req)
+
+    assert features["has_regional_language"] == 1
+    assert features["has_art"] == 1
+    assert features["has_pkwu"] == 1
+    assert features["has_pe"] == 1
+    assert features["has_informatics"] == 1
+    assert features["optional_subject_count"] == 6
+    assert features["optional_subject_boost"] >= 50
+    assert features["optional_completeness_score"] == round(6 / 7 * 100, 2)
+
+
+def test_subject_group_aliases_and_defaults_are_neutral():
+    req = PredictRequest(
+        sma_track="IPA",
+        scores={
+            "mathematics": 90,
+            "bahasa_indonesia": 80,
+            "english": 70,
+            "arts_culture": 85,
+            "religion_ethics": 75,
+            "regional_language": None,
+        },
+        interests=["Technology"],
+        preferences={},
+    )
+    features = feature_row_for(req)
+
+    assert features["science_score"] == 90
+    assert features["technical_score"] == 90
+    assert features["language_score"] == 75
+    assert features["humanities_score"] == 80
+    assert features["social_score"] == 50
+
+
+def test_profile_summary_and_explanation_ignore_nullable_scores():
+    req = PredictRequest(
+        sma_track="IPA",
+        scores={
+            "mathematics": 88,
+            "bahasa_indonesia": None,
+            "english": 90,
+            "regional_language": None,
+        },
+        interests=["Technology"],
+        preferences={"approach": "Technical"},
+    )
+    service = __import__("app.services.ml_service", fromlist=["MLService"]).MLService()
+
+    summary = service._build_profile_summary(req)
+    explanation = service._generic_explanation("Computer Science", req)
+
+    assert summary.avg_score == 89
+    assert summary.strongest_subject == "Bahasa Inggris"
+    assert "Bahasa Inggris" in explanation
+
+
+def test_predict_request_rejects_out_of_range_scores():
+    try:
+        PredictRequest(sma_track="IPA", scores={"mathematics": 101}, interests=[], preferences={})
+    except ValidationError as exc:
+        assert "0 and 100" in str(exc) or "less than or equal" in str(exc)
+    else:
+        raise AssertionError("Expected validation error")
+
+
+def test_predict_request_rejects_unknown_score_keys_even_when_partial():
+    try:
+        PredictRequest(sma_track="IPA", scores={"unsupported_subject": 90}, interests=[], preferences={})
+    except ValidationError as exc:
+        assert "unsupported subjects" in str(exc)
+    else:
+        raise AssertionError("Expected validation error")
+
+
+def test_recommendation_item_accepts_legacy_fields_with_safe_defaults():
+    item = RecommendationItem(
+        rank=1,
+        major="Data Science",
+        cluster="STEM / Technology",
+        suitability_score=87,
+        explanation="Strong math and technology fit.",
+    )
+
+    assert item.match_level == "Match"
+    assert item.score_breakdown == {}
+    assert item.explanation == ["Strong math and technology fit."]
+
+
+def test_predict_response_requires_feature_version():
+    try:
+        PredictResponse(
+            app="apti",
+            model_version="apti_rf_v1.0",
+            recommendations=[],
+            profile_summary={},
+            latency_ms=123,
+        )
+    except ValidationError as exc:
+        assert "feature_version" in str(exc)
+    else:
+        raise AssertionError("Expected validation error")
+
+
+def test_predict_response_requires_latency_ms():
+    try:
+        PredictResponse(
+            app="apti",
+            model_version="apti_rf_v1.0",
+            feature_version="apti_features_v1.0",
+            recommendations=[],
+            profile_summary={},
+        )
+    except ValidationError as exc:
+        assert "latency_ms" in str(exc)
+    else:
+        raise AssertionError("Expected validation error")
+
+
+def test_predict_returns_top_n_contract_when_model_unavailable():
+    req = PredictRequest(
+        sma_track="IPA",
+        scores={
+            "mathematics": 91,
+            "english": 86,
+            "physics": 84,
+            "chemistry": 78,
+            "biology": 74,
+            "informatics": None,
+        },
+        interests=["Technology", "Data / AI", "Design"],
+        preferences={
+            "orientation": "Numbers",
+            "approach": "Technical",
+            "style": "Independent",
+            "religion_related_major_preference": "Not relevant",
+        },
+        top_n=5,
+        language="en",
+    )
+    service = __import__("app.services.ml_service", fromlist=["MLService"]).MLService()
+
+    result = service.predict(req)
+
+    assert result.fallback_used is True
+    assert len(result.recommendations) == 5
+    assert len({item.major for item in result.recommendations}) == 5
+    assert any("fallback" in note.lower() for note in result.notes)
+    assert any("neutral" in note.lower() for note in result.notes)
+    for index, item in enumerate(result.recommendations, start=1):
+        assert item.rank == index
+        assert 0 <= item.suitability_score <= 100
+        assert item.match_level in {"Strong match", "Good match", "Moderate match", "Exploratory match"}
+        assert item.major
+        assert {
+            "model_score",
+            "academic_fit_score",
+            "interest_fit_score",
+            "preference_fit_score",
+            "optional_subject_boost",
+        }.issubset(item.score_breakdown)
+        assert item.explanation
+        assert item.tradeoffs
+        assert item.career_paths
+        assert item.alternative_majors
+        assert item.caution
+
+
+def test_match_level_thresholds_are_exact():
+    service = __import__("app.services.ml_service", fromlist=["MLService"]).MLService()
+
+    assert service._match_level(85) == "Strong match"
+    assert service._match_level(84) == "Good match"
+    assert service._match_level(70) == "Good match"
+    assert service._match_level(69) == "Moderate match"
+    assert service._match_level(55) == "Moderate match"
+    assert service._match_level(54) == "Exploratory match"
+
+
+def test_weighted_score_uses_contract_weights_and_clamps():
+    service = __import__("app.services.ml_service", fromlist=["MLService"]).MLService()
+
+    assert service._weighted_score(
+        {
+            "model_score": 80,
+            "academic_fit_score": 70,
+            "interest_fit_score": 60,
+            "preference_fit_score": 50,
+            "optional_subject_boost": 40,
+        }
+    ) == 70
+    assert service._weighted_score(
+        {
+            "model_score": 200,
+            "academic_fit_score": 200,
+            "interest_fit_score": 200,
+            "preference_fit_score": 200,
+            "optional_subject_boost": 200,
+        }
+    ) == 100
+
+
+def test_fallback_handles_empty_interests_and_preferences():
+    req = PredictRequest(
+        sma_track="Merdeka",
+        scores={"math": 82, "english": 79, "biology": 75, "chemistry": 76, "physics": 77, "advanced_math": 78},
+        interests=[],
+        preferences={"approach": ["Technical", "Social"]},
+        selected_electives=["biology", "chemistry", "physics", "advanced_math"],
+        top_n=3,
+        language="en",
+    )
+    service = __import__("app.services.ml_service", fromlist=["MLService"]).MLService()
+
+    result = service.predict(req)
+
+    assert result.fallback_used is True
+    assert len(result.recommendations) == 3
+    assert result.recommendations[0].fit_summary
+
+
+def test_advanced_math_score_supports_catalog_mathematics_aliases():
+    service = __import__("app.services.ml_service", fromlist=["MLService"]).MLService()
+    scores = {"advanced_math": 92}
+
+    assert service._score_value(scores, "mathematics") == 92
+    assert service._score_value(scores, "mathematics_advanced") == 92
+
+
+def test_rapor_request_backfills_flat_scores_from_semester_averages():
+    req = PredictRequest(
+        sma_track="IPA",
+        rapor=RaporInput(
+            kelas_10=[SemesterScore(semester=1, subject="religion", score=80), SemesterScore(semester=2, subject="religion", score=90)],
+            kelas_11=[SemesterScore(semester=3, subject="physics", score=82), SemesterScore(semester=4, subject="physics", score=86)],
+            kelas_12=[SemesterScore(semester=5, subject="advanced_math", score=90), SemesterScore(semester=6, subject="advanced_math", score=94)],
+        ),
+        preferences={"religion_related_major_preference": "Not relevant"},
+    )
+
+    assert req.scores["religion"] == 85
+    assert req.scores["physics"] == 84
+    assert req.scores["advanced_math"] == 92
+
+
+def test_rapor_aggregates_calculate_gpa_and_subject_trends():
+    service = __import__("app.services.ml_service", fromlist=["MLService"]).MLService()
+    req = PredictRequest(
+        sma_track="IPA",
+        rapor=RaporInput(
+            kelas_10=[SemesterScore(semester=1, subject="general_math", score=70), SemesterScore(semester=2, subject="general_math", score=74)],
+            kelas_11=[SemesterScore(semester=3, subject="advanced_math", score=80), SemesterScore(semester=4, subject="advanced_math", score=84)],
+            kelas_12=[SemesterScore(semester=5, subject="advanced_math", score=88), SemesterScore(semester=6, subject="advanced_math", score=92)],
+        ),
+        preferences={"religion_related_major_preference": "Not relevant"},
+    )
+
+    aggregates = service._rapor_aggregates(req)
+
+    assert aggregates.subject_avg["advanced_math"] == 86
+    assert aggregates.subject_trend["advanced_math"] > 0
+    assert aggregates.kelas_12_avg == 90
+    assert aggregates.overall_gpa > 80
+
+
+def prodi_test_profile():
+    return {
+        "prodi_id": "TI_TEST",
+        "nama_prodi": "Teknik Informatika",
+        "kelompok_prodi": "Komputer dan Informatika",
+        "rumpun_ilmu": "Sains dan Teknologi",
+        "academic_weights": {"mathematics": 1},
+        "interest_weights": {"technology_digital": 1, "tech_software": 1},
+        "preference_weights": {"remote_friendly": 1},
+        "career_weights": {"technology_builder": 1},
+        "challenge_areas": ["Math consistency"],
+        "career_paths": ["Software Engineer"],
+        "skill_gaps": ["Algorithms"],
+        "supporting_subjects": {},
+    }
+
+
+def test_custom_free_text_changes_prodi_scoring_signal(monkeypatch):
+    service = __import__("app.services.ml_service", fromlist=["MLService"]).MLService()
+    profile = prodi_test_profile()
+    monkeypatch.setattr("app.services.ml_service.prodi_profile_service.academic_requirements", lambda _prodi_id: {"primary": {"mathematics": {"weight": 1, "min_score": 75, "benchmark": 85}}, "supporting": {}, "contextual": {}})
+    monkeypatch.setattr("app.services.ml_service.prodi_profile_service.tier", lambda _prodi_id: "moderate")
+    base = PredictRequest(
+        sma_track="IPA",
+        scores={"advanced_math": 90, "english": 80},
+        interests=[],
+        preferences={},
+        top_n=3,
+        language="en",
+    )
+    custom = base.model_copy(
+        update={
+            "subject_preferences": {"custom": "Saya suka informatika dan perangkat lunak"},
+            "career_direction": {"custom": "technology builder"},
+            "constraints": {"custom": "remote friendly"},
+            "free_text_goal": "Membangun produk software",
+        }
+    )
+
+    base_item = service._score_prodi_profile(base, profile)
+    custom_item = service._score_prodi_profile(custom, profile)
+
+    assert custom_item.score_breakdown["interest_fit_score"] > base_item.score_breakdown["interest_fit_score"]
+    assert custom_item.score_breakdown["preference_fit_score"] > base_item.score_breakdown["preference_fit_score"]
+    assert custom_item.suitability_score > base_item.suitability_score
+
+
+def test_benchmark_defaults_cover_all_kelompok_profiles():
+    from app.services.prodi_profile_service import BENCHMARK_DEFAULTS_PATH, PROFILE_PATH, prodi_profile_service
+
+    defaults = json.loads(BENCHMARK_DEFAULTS_PATH.read_text())["kelompok_defaults"]
+    profiles = json.loads(PROFILE_PATH.read_text())["profiles"]
+    kelompok = {profile["kelompok_prodi"] for profile in profiles}
+
+    assert len(defaults) == 59
+    assert kelompok.issubset(defaults)
+    assert all(defaults[group]["academic_requirements"]["primary"] for group in kelompok)
+    sample = profiles[0]
+    assert prodi_profile_service.min_gpa(sample["prodi_id"]) >= 70
+    assert prodi_profile_service.trend_bonus_subjects(sample["prodi_id"])
+    assert prodi_profile_service.llm_context(sample["prodi_id"])["academic_requirements"]
+
+
+
+def test_phase2_thresholds_and_trend_affect_prodi_scoring(monkeypatch):
+    service = __import__("app.services.ml_service", fromlist=["MLService"]).MLService()
+    profile = prodi_test_profile()
+    monkeypatch.setattr("app.services.ml_service.prodi_profile_service.academic_requirements", lambda _prodi_id: {"primary": {"mathematics": {"weight": 1, "min_score": 80, "benchmark": 90}}, "supporting": {}, "contextual": {}})
+    monkeypatch.setattr("app.services.ml_service.prodi_profile_service.tier", lambda _prodi_id: "competitive")
+    monkeypatch.setattr("app.services.ml_service.prodi_profile_service.min_gpa", lambda _prodi_id: 90)
+    low = PredictRequest(sma_track="IPA", scores={"advanced_math": 70}, interests=["Technology"], preferences={"religion_related_major_preference": "Not relevant"})
+    rising = PredictRequest(
+        sma_track="IPA",
+        rapor=RaporInput(
+            kelas_10=[SemesterScore(semester=1, subject="general_math", score=72), SemesterScore(semester=2, subject="general_math", score=76)],
+            kelas_11=[SemesterScore(semester=3, subject="advanced_math", score=82), SemesterScore(semester=4, subject="advanced_math", score=86)],
+            kelas_12=[SemesterScore(semester=5, subject="advanced_math", score=90), SemesterScore(semester=6, subject="advanced_math", score=94)],
+        ),
+        interests=["Technology"],
+        preferences={"religion_related_major_preference": "Not relevant"},
+    )
+
+    low_item = service._score_prodi_profile(low, profile)
+    rising_item = service._score_prodi_profile(rising, profile)
+
+    assert low_item.score_breakdown["threshold_fit_score"] < rising_item.score_breakdown["threshold_fit_score"]
+    assert rising_item.score_breakdown["trend_fit_score"] > 50
+    assert rising_item.score_breakdown["gpa_fit_score"] > low_item.score_breakdown["gpa_fit_score"]
+    assert rising_item.suitability_score > low_item.suitability_score
+    assert low_item.supporting_subjects["threshold_gaps"][0]["gap"] < 0
+
+
+def test_evaluation_gate_blocks_production_swap_without_metrics(tmp_path):
+    from ml.evaluate import DEFAULT_DATASET, DEFAULT_ENCODER, DEFAULT_MODEL, evaluate_readiness
+
+    report = evaluate_readiness(DEFAULT_DATASET, DEFAULT_MODEL, DEFAULT_ENCODER, tmp_path / "missing_metrics.json")
+
+    assert report["version"] == "apti_evaluation_gate_v1"
+    assert report["thresholds"] == {"top1_accuracy": 0.6, "top5_accuracy": 0.9}
+    assert report["gates"]["production_swap_allowed"] is False
+    assert "fallback" in report["recommendation"].lower()
+
+
+def test_evaluation_gate_allows_swap_when_metrics_and_artifacts_pass(tmp_path):
+    from ml.evaluate import evaluate_readiness
+
+    dataset_path = tmp_path / "training_dataset.csv"
+    model_path = tmp_path / "model.pkl"
+    encoder_path = tmp_path / "encoder.pkl"
+    metrics_path = tmp_path / "training_metrics.json"
+    dataset_path.write_text("kelompok_prodi,s1_math,math_trend\nKomputer,88,0.2\nBisnis,80,0.1\n", encoding="utf-8")
+    model_path.write_bytes(b"model")
+    encoder_path.write_bytes(b"encoder")
+    metrics_path.write_text(json.dumps({"version": "apti_training_metrics_v2", "selected_model": "extra_trees", "top1_accuracy": 0.61, "top5_accuracy": 0.91, "macro_f1": 0.6}), encoding="utf-8")
+
+    report = evaluate_readiness(dataset_path, model_path, encoder_path, metrics_path)
+
+    assert report["status"] == "passed"
+    assert report["metrics"]["selected_model"] == "extra_trees"
+    assert report["gates"] == {
+        "dataset_present": True,
+        "model_artifacts_present": True,
+        "metrics_present": True,
+        "metrics_pass": True,
+        "production_swap_allowed": True,
+    }
+
+
+def test_load_missing_artifacts_does_not_raise(monkeypatch):
+    service = __import__("app.services.ml_service", fromlist=["MLService"]).MLService()
+
+    def missing(_path):
+        raise FileNotFoundError("missing artifact")
+
+    monkeypatch.setattr("app.services.ml_service.joblib.load", missing)
+
+    service.load()
+
+    assert service.model is None
+    assert service.label_encoder is None
+
+
+def test_model_prediction_failure_uses_fallback():
+    class BrokenModel:
+        def predict_proba(self, _features):
+            raise RuntimeError("broken proba")
+
+    class Labels:
+        classes_ = ["Computer Science"]
+
+    req = PredictRequest(
+        sma_track="IPA",
+        scores={"mathematics": 90, "english": 85},
+        interests=[],
+        preferences={},
+        top_n=2,
+        language="en",
+    )
+    service = __import__("app.services.ml_service", fromlist=["MLService"]).MLService()
+    service.model = BrokenModel()
+    service.label_encoder = Labels()
+
+    result = service.predict(req)
+
+    assert result.fallback_used is True
+    assert any("fallback" in note.lower() for note in result.notes)
+    assert len(result.recommendations) == 3
+
+
+def test_log_prediction_payload_uses_canonical_score_keys_and_preserves_zero(monkeypatch):
+    from app.core import db
+
+    captured = {}
+
+    class Query:
+        def insert(self, payload):
+            captured["payload"] = payload
+            return self
+
+        def execute(self):
+            return None
+
+    class Client:
+        def table(self, name):
+            captured["table"] = name
+            return Query()
+
+    req = PredictRequest(
+        sma_track="IPA",
+        scores={"mathematics": 0, "bahasa_indonesia": 0, "english": 0},
+        interests=["Technology"],
+        preferences={},
+    )
+    rec = RecommendationItem(
+        rank=1,
+        major="Computer Science",
+        cluster="STEM / Technology",
+        suitability_score=80,
+        explanation=["fit"],
+    )
+    monkeypatch.setattr(db, "get_supabase", lambda: Client())
+
+    db.log_prediction(req, [rec], latency_ms=12.345, fallback_used=True)
+
+    assert captured["table"] == "prediction_log"
+    assert captured["payload"]["math_score"] == 0
+    assert captured["payload"]["indonesian_score"] == 0
+    assert captured["payload"]["english_score"] == 0
+    assert captured["payload"]["latency_ms"] == 12.35
+    assert captured["payload"]["fallback_used"] is True
+    assert captured["payload"]["model_version"] == MODEL_VERSION
+
+
+def test_recommendation_response_contains_p0_contract_fields():
+    item = RecommendationItem(
+        rank=1,
+        major="Data Science",
+        cluster="STEM / Technology",
+        suitability_score=87,
+        match_level="Strong match",
+        score_breakdown={
+            "model_score": 84,
+            "academic_fit_score": 90,
+            "interest_fit_score": 92,
+            "preference_fit_score": 85,
+            "optional_subject_boost": 80,
+        },
+        explanation=["Your Mathematics and Informatics scores support technology-related fields."],
+        tradeoffs=["This major may require consistency in mathematics and programming."],
+        career_paths=["Data Analyst"],
+        alternative_majors=["Computer Science"],
+        caution="This recommendation is an exploration aid, not a final decision.",
+    )
+    response = PredictResponse(
+        app="apti",
+        model_version="apti_rf_v1.0",
+        feature_version="apti_features_v1.0",
+        recommendations=[item],
+        profile_summary={
+            "strongest_area": "Technology & Quantitative",
+            "academic_pattern": "Strong in math and technology-related subjects",
+            "interest_pattern": "Technology-oriented",
+            "preference_pattern": "Independent and systems-oriented",
+            "input_completeness_score": 82,
+        },
+        notes=["Optional missing subjects were treated neutrally, not as low scores."],
+        fallback_used=False,
+        latency_ms=123,
+    )
+
+    assert response.app == "apti"
+    assert response.recommendations[0].score_breakdown["model_score"] == 84

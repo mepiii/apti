@@ -1,0 +1,75 @@
+# Dependencies
+node_modules/
+**/node_modules/
+modules/
+**/modules/
+.venv/
+backend/.venv/
+frontend/node_modules/
+
+# Build/cache outputs
+dist/
+frontend/dist/
+build/
+coverage/
+.cache/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.pyc
+__pycache__/
+
+# Environment & secrets
+.env
+backend/.env
+frontend/.env
+*.env.local
+*.pem
+*.key
+*.crt
+
+# Local models/data outputs
+backend/ml/models/*
+backend/ml/data/*
+!backend/ml/models/rf_v1.0.pkl
+!backend/ml/models/label_encoder.pkl
+!backend/ml/data/**/*.json
+!backend/ml/data/**/*.csv
+
+# OS/editor
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*.bak
+~*
+
+# Agent/tool workspace
+.claude/
+.tldr/
+.tldrignore
+.agents/
+.impeccable.md
+**/.impeccable.md
+thoughts/
+docs/
+**/docs/
+superpowers/docs/
+**/superpowers/docs/
+frontend/test-results/
+frontend/playwright-report/
+skills-lock.json
+
+# Draft docs/data
+*.md
+!README.md
+!backend/README.md
+!frontend/README.md
+*.csv
+*.xlsx
+*.ipynb
+prompt*.md
+
+# Local infra scratch
+supabase/
+.vercel

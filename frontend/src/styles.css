@@ -1,0 +1,512 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: "Manrope", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+  font-feature-settings: 'cv01', 'ss03';
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+.apti-shell::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image:
+    linear-gradient(to right, rgba(124, 128, 138, 0.09) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(124, 128, 138, 0.09) 1px, transparent 1px);
+  background-size: 30px 30px;
+  opacity: 1;
+  animation: apti-grid-drift 18s var(--ease-out-quart) infinite alternate;
+}
+
+@keyframes apti-grid-drift {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(0, -12px, 0);
+  }
+}
+
+.apti-shell[data-theme='dark']::before {
+  background-image:
+    linear-gradient(to right, rgba(214, 217, 227, 0.08) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(214, 217, 227, 0.08) 1px, transparent 1px);
+}
+
+.apti-shell > * {
+  position: relative;
+  z-index: 1;
+}
+
+.apti-shell::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background: radial-gradient(circle at top center, rgba(255, 255, 255, 0.35), transparent 45%);
+}
+
+.apti-shell[data-theme='dark']::after {
+  background: radial-gradient(circle at top center, rgba(255, 255, 255, 0.08), transparent 45%);
+}
+
+.apti-primary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.625rem;
+  border: 1px solid color-mix(in srgb, var(--shell-accent) 42%, transparent);
+  border-radius: 999px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--shell-accent) 90%, white 10%), color-mix(in srgb, var(--shell-accent) 72%, black 8%));
+  color: white;
+  box-shadow: 0 14px 30px color-mix(in srgb, var(--shell-accent) 24%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  transition: transform 220ms var(--ease-out-quart), filter 220ms var(--ease-out-quart), box-shadow 220ms var(--ease-out-quart);
+}
+
+.apti-primary-button:hover {
+  transform: translateY(-2px) scale(1.01);
+  filter: brightness(1.05);
+  box-shadow: 0 18px 34px color-mix(in srgb, var(--shell-accent) 28%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.24);
+}
+
+.apti-primary-button:active {
+  transform: translateY(0) scale(0.985);
+}
+
+.apti-primary-button:focus-visible,
+.apti-secondary-button:focus-visible,
+.editorial-chip:focus-visible,
+.glass-input:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--shell-accent) 18%, transparent);
+}
+
+.apti-primary-button:disabled {
+  opacity: 0.55;
+  box-shadow: none;
+  transform: none;
+}
+
+.apti-secondary-button,
+.editorial-chip,
+.glass-panel,
+.editorial-shell,
+.apti-shell-header {
+  transition:
+    transform 220ms var(--ease-out-quart),
+    border-color 220ms var(--ease-out-quart),
+    background-color 220ms var(--ease-out-quart),
+    color 220ms var(--ease-out-quart),
+    box-shadow 220ms var(--ease-out-quart),
+    filter 220ms var(--ease-out-quart);
+}
+
+.apti-secondary-button:hover {
+  transform: translateY(-1px);
+  color: var(--shell-ink);
+  border-color: color-mix(in srgb, var(--shell-accent) 30%, var(--shell-border));
+  box-shadow: 0 10px 22px color-mix(in srgb, var(--shell-accent) 10%, transparent);
+}
+
+.editorial-chip:hover {
+  transform: translateY(-1px);
+  color: var(--shell-ink);
+  border-color: color-mix(in srgb, var(--shell-accent) 32%, var(--shell-border));
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--shell-accent) 10%, transparent);
+}
+
+.glass-panel:hover,
+.editorial-shell:hover,
+.apti-shell-header:hover {
+  border-color: color-mix(in srgb, var(--shell-accent) 18%, var(--shell-border));
+  box-shadow: 0 18px 38px color-mix(in srgb, var(--shell-accent) 8%, transparent);
+}
+
+.apti-interactive-lift {
+  transition: transform 240ms var(--ease-out-expo), box-shadow 240ms var(--ease-out-expo), border-color 240ms var(--ease-out-expo);
+}
+
+.apti-interactive-lift:hover {
+  transform: translateY(-3px);
+}
+
+.apti-interactive-press:active {
+  transform: scale(0.985);
+}
+
+.apti-fade-up {
+  animation: apti-fade-up 480ms var(--ease-out-expo) both;
+}
+
+@keyframes apti-fade-up {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 18px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.apti-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.apti-shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(115deg, transparent 20%, rgba(255, 255, 255, 0.16) 50%, transparent 80%);
+  transform: translateX(-140%);
+  transition: transform 520ms var(--ease-out-expo);
+}
+
+.apti-shimmer:hover::after {
+  transform: translateX(140%);
+}
+
+.apti-choice-active {
+  color: var(--shell-accent) !important;
+}
+
+.apti-choice-idle {
+  color: var(--shell-muted) !important;
+}
+
+.apti-choice-idle:hover,
+.apti-shell[data-theme='light'] .apti-choice-idle:hover,
+.apti-shell[data-theme='light'] .apti-choice-idle:hover * {
+  color: var(--shell-ink) !important;
+}
+
+.apti-section-divider {
+  transform-origin: left center;
+  animation: apti-divider-grow 700ms var(--ease-out-expo) both;
+}
+
+@keyframes apti-divider-grow {
+  from {
+    opacity: 0;
+    transform: scaleX(0.65);
+  }
+  to {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+}
+
+.apti-field-enter {
+  animation: apti-field-enter 320ms var(--ease-out-quart) both;
+}
+
+@keyframes apti-field-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.apti-button-spinner {
+  width: 0.9rem;
+  height: 0.9rem;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.28);
+  border-top-color: white;
+  animation: apti-spin 0.7s linear infinite;
+}
+
+@keyframes apti-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+body {
+  background: #f7f6f3;
+  color: #37352f;
+}
+
+body:has(.apti-shell[data-theme='dark']) {
+  background: #191919;
+  color: #e9e9e7;
+}
+
+body:has(.apti-shell[data-theme='light']) {
+  background: #f7f6f3;
+  color: #37352f;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+#root {
+  isolation: isolate;
+}
+
+.apti-shell[data-theme='light'] {
+  --shell-bg: #f7f6f3;
+  --shell-surface: #ffffff;
+  --shell-surface-strong: #ffffff;
+  --shell-border: rgba(55, 53, 47, 0.16);
+  --shell-border-strong: rgba(55, 53, 47, 0.28);
+  --shell-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --shell-shadow-soft: 0 1px 1px rgba(15, 23, 42, 0.04);
+  --shell-ink: #37352f;
+  --shell-muted: #6b6f76;
+  --shell-subtle: #8a8f98;
+  --shell-accent: #4f46e5;
+  --shell-success: #2f7d4f;
+  --shell-danger: #c2410c;
+  --input-bg: #ffffff;
+  --input-placeholder: #9ca3af;
+  --button-secondary-bg: #ffffff;
+  --button-secondary-border: rgba(55, 53, 47, 0.16);
+  background: #f7f6f3;
+  color: var(--shell-ink);
+}
+
+.apti-shell[data-theme='dark'] {
+  --shell-bg: #191919;
+  --shell-surface: #202020;
+  --shell-surface-strong: #252525;
+  --shell-border: rgba(255, 255, 255, 0.12);
+  --shell-border-strong: rgba(255, 255, 255, 0.18);
+  --shell-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shell-shadow-soft: 0 1px 1px rgba(0, 0, 0, 0.28);
+  --shell-ink: #e9e9e7;
+  --shell-muted: #a8a29e;
+  --shell-subtle: #8b8b8b;
+  --shell-accent: #818cf8;
+  --shell-success: #4ade80;
+  --shell-danger: #fb923c;
+  --input-bg: #2a2a2a;
+  --input-placeholder: #8b8b8b;
+  --button-secondary-bg: #252525;
+  --button-secondary-border: rgba(255, 255, 255, 0.12);
+  background: #191919;
+  color: var(--shell-ink);
+}
+
+.apti-shell {
+  position: relative;
+  background: var(--shell-bg);
+  color: var(--shell-ink);
+}
+
+.apti-shell-header,
+.glass-panel,
+.editorial-shell {
+  border: 1px solid var(--shell-border);
+  background: var(--shell-surface);
+  box-shadow: var(--shell-shadow);
+  backdrop-filter: none;
+}
+
+.glass-input {
+  color: var(--shell-ink);
+  background: var(--input-bg);
+  border: 1px solid var(--shell-border-strong);
+  outline: none;
+}
+
+.glass-input::placeholder {
+  color: var(--input-placeholder);
+}
+
+.glass-input:focus {
+  border-color: var(--shell-accent);
+  transform: translateY(-1px);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--shell-accent) 14%, transparent), 0 14px 30px color-mix(in srgb, var(--shell-accent) 8%, transparent);
+}
+
+.glass-input,
+textarea.glass-input,
+select.glass-input {
+  transition: transform 200ms var(--ease-out-quart), border-color 200ms var(--ease-out-quart), box-shadow 200ms var(--ease-out-quart), background-color 200ms var(--ease-out-quart);
+}
+
+.glass-input:hover,
+textarea.glass-input:hover,
+select.glass-input:hover {
+  border-color: color-mix(in srgb, var(--shell-accent) 18%, var(--shell-border-strong));
+}
+
+.glass-input:not(:focus),
+textarea.glass-input:not(:focus),
+select.glass-input:not(:focus) {
+  transform: none;
+}
+
+.apti-secondary-button {
+  color: var(--shell-ink);
+  background: var(--button-secondary-bg);
+  border: 1px solid var(--button-secondary-border);
+}
+
+.editorial-kicker,
+.text-textSubtle {
+  color: var(--shell-subtle);
+}
+
+.text-textMuted,
+.text-textSecondary {
+  color: var(--shell-muted);
+}
+
+.text-textPrimary {
+  color: var(--shell-ink);
+}
+
+.editorial-rule {
+  height: 1px;
+  background: var(--shell-border);
+}
+
+.editorial-chip {
+  border: 1px solid var(--shell-border);
+  background: var(--shell-surface-strong);
+  color: var(--shell-muted);
+}
+
+
+.apti-shell .bg-cta {
+  background: var(--shell-accent);
+}
+
+.apti-shell .text-accent {
+  color: var(--shell-accent);
+}
+
+.apti-shell .border-accent\/30,
+.apti-shell .border-accent\/50,
+.apti-shell .border-accent\/60 {
+  border-color: color-mix(in srgb, var(--shell-accent) 30%, transparent);
+}
+
+.apti-shell .bg-accent\/10,
+.apti-shell .bg-accent\/20 {
+  background: color-mix(in srgb, var(--shell-accent) 12%, transparent);
+}
+
+.apti-shell .hover\:border-accent\/60:hover,
+.apti-shell .hover\:border-accent\/50:hover {
+  border-color: color-mix(in srgb, var(--shell-accent) 45%, transparent);
+}
+
+.apti-shell .hover\:text-textSecondary:hover {
+  color: var(--shell-ink);
+}
+
+.apti-shell .border-slate-300\/80 {
+  border-color: var(--shell-border-strong);
+}
+
+.apti-shell .bg-white\/70,
+.apti-shell .bg-white\/5 {
+  background: var(--shell-surface);
+}
+
+.apti-shell .border-white\/10,
+.apti-shell .border-white\/20 {
+  border-color: var(--shell-border);
+}
+
+.apti-shell .text-red-700,
+.apti-shell .text-red-800 {
+  color: var(--shell-danger);
+}
+
+.apti-shell .border-red-500,
+.apti-shell .border-red-500\/50 {
+  border-color: var(--shell-danger);
+}
+
+.apti-shell .bg-red-500\/10 {
+  background: color-mix(in srgb, var(--shell-danger) 10%, transparent);
+}
+
+.apti-shell .hover\:brightness-110:hover {
+  filter: brightness(1.04);
+}
+
+.apti-shell .disabled\:opacity-40:disabled,
+.apti-shell .disabled\:opacity-50:disabled,
+.apti-shell .disabled\:opacity-60:disabled {
+  opacity: 0.5;
+}
+
+.apti-shell option {
+  color: #111827;
+}
+
+.apti-shell[data-theme='dark'] option {
+  color: #e5e7eb;
+  background: #252525;
+}
+
+.apti-shell[data-theme='dark'] .bg-white\/70,
+.apti-shell[data-theme='dark'] .bg-white\/5,
+.apti-shell[data-theme='dark'] .editorial-chip,
+.apti-shell[data-theme='dark'] .glass-panel,
+.apti-shell[data-theme='dark'] .editorial-shell,
+.apti-shell[data-theme='dark'] .apti-secondary-button {
+  background: var(--shell-surface);
+}
+
+.apti-shell[data-theme='dark'] .glass-input {
+  background: var(--input-bg);
+}
+
+.apti-shell[data-theme='dark'] .hover\:text-textSecondary:hover {
+  color: var(--shell-ink);
+}
+
+.apti-shell[data-theme='dark'] .border-slate-300\/80 {
+  border-color: var(--shell-border-strong);
+}
+
+.apti-shell[data-theme='light'] .glass-panel,
+.apti-shell[data-theme='light'] .editorial-shell,
+.apti-shell[data-theme='light'] .apti-secondary-button {
+  background: var(--shell-surface);
+}
+
+.apti-shell-header {
+  background: var(--shell-surface);
+  border: 1px solid var(--shell-border);
+  box-shadow: var(--shell-shadow);
+}
